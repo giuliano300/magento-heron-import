@@ -15,4 +15,8 @@
         for="Heron\Bulk\Api\ReindexInterface"
         type="Heron\Bulk\Model\Reindex"/>
 
+    <preference
+        for="Heron\Bulk\Api\ImagesInterface"
+        type="Heron\Bulk\Model\Images"/>
+
 </config>

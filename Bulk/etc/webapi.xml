@@ -41,4 +41,17 @@
             <resource ref="anonymous"/>
         </resources>
     </route>
+
+    <route
+        url="/V1/heron/images"
+        method="POST">
+
+        <service
+            class="Heron\Bulk\Api\ImagesInterface"
+            method="import"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
 </routes>
