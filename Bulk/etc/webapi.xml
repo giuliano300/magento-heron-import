@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
+
+    <route
+        url="/V1/heron/ping"
+        method="GET">
+
+        <service
+            class="Heron\Bulk\Api\PingInterface"
+            method="ping"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+
+    </route>
+
+
+    <route
+        url="/V1/heron/import-products"
+        method="POST">
+
+        <service
+            class="Heron\Bulk\Api\ImportInterface"
+            method="import"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+
+    </route>
+
+    <route url="/V1/heron/reindex" method="POST">
+        <service
+            class="Heron\Bulk\Api\ReindexInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+</routes>

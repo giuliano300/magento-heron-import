@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+
+    <preference
+        for="Heron\Bulk\Api\PingInterface"
+        type="Heron\Bulk\Model\Ping"/>
+
+    <preference
+        for="Heron\Bulk\Api\ImportInterface"
+        type="Heron\Bulk\Model\Import"/>
+
+    <preference
+        for="Heron\Bulk\Api\ReindexInterface"
+        type="Heron\Bulk\Model\Reindex"/>
+
+</config>
