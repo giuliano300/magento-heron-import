@@ -4,145 +4,419 @@ namespace Heron\Bulk\Model;
 
 use Heron\Bulk\Api\ReindexInterface;
 use Magento\Framework\App\Cache\TypeListInterface;
-use Magento\Framework\App\Cache\Frontend\Pool;
-use Psr\Log\LoggerInterface;
+use Magento\Framework\Indexer\IndexerRegistry;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\CatalogUrlRewrite\Model\ProductUrlRewriteGenerator;
 use Magento\UrlRewrite\Model\UrlPersistInterface;
+use Psr\Log\LoggerInterface;
 
 class Reindex implements ReindexInterface
 {
     private TypeListInterface $cacheTypeList;
-    private Pool $cacheFrontendPool;
+
     private LoggerInterface $logger;
+
     private CollectionFactory $productCollectionFactory;
+
     private ProductUrlRewriteGenerator $urlRewriteGenerator;
+
     private UrlPersistInterface $urlPersist;
+
+    private IndexerRegistry $indexerRegistry;
 
     public function __construct(
         TypeListInterface $cacheTypeList,
-        Pool $cacheFrontendPool,
         LoggerInterface $logger,
         CollectionFactory $productCollectionFactory,
         ProductUrlRewriteGenerator $urlRewriteGenerator,
-        UrlPersistInterface $urlPersist
+        UrlPersistInterface $urlPersist,
+        IndexerRegistry $indexerRegistry
     ) {
-        $this->cacheTypeList = $cacheTypeList;
-        $this->cacheFrontendPool = $cacheFrontendPool;
-        $this->logger = $logger;
-        $this->productCollectionFactory = $productCollectionFactory;
-        $this->urlRewriteGenerator = $urlRewriteGenerator;
-        $this->urlPersist = $urlPersist;
+        $this->cacheTypeList =
+            $cacheTypeList;
+
+        $this->logger =
+            $logger;
+
+        $this->productCollectionFactory =
+            $productCollectionFactory;
+
+        $this->urlRewriteGenerator =
+            $urlRewriteGenerator;
+
+        $this->urlPersist =
+            $urlPersist;
+
+        $this->indexerRegistry =
+            $indexerRegistry;
     }
 
-    public function execute(?string $skus = null)
-    {
+    public function execute(
+        string $batchId,
+        array $skus = []
+    ) {
+
+        $statusDir =
+            BP . '/var/log/heron';
+
+        $statusFile =
+            $statusDir
+            . '/reindex-status-'
+            . preg_replace(
+                '/[^a-zA-Z0-9\-_]/',
+                '',
+                $batchId
+            )
+            . '.json';
+
         try {
 
             /*
             |--------------------------------------------------------------------------
-            | DECODE SKUS
+            | STATUS DIRECTORY
             |--------------------------------------------------------------------------
             */
 
-            $decodedSkus = [];
+            if (!is_dir($statusDir)) {
 
-            if (!empty($skus)) {
-
-                $decodedSkus = json_decode(
-                    $skus,
+                mkdir(
+                    $statusDir,
+                    0777,
                     true
                 );
+            }
 
-                if (!is_array($decodedSkus)) {
+            /*
+            |--------------------------------------------------------------------------
+            | INITIAL STATUS
+            |--------------------------------------------------------------------------
+            */
 
-                    throw new \Exception(
-                        'SKU non validi'
+            $this->writeStatus(
+                $statusFile,
+                true,
+                0,
+                0
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | IMMEDIATE RESPONSE
+            |--------------------------------------------------------------------------
+            */
+
+            ignore_user_abort(true);
+
+            set_time_limit(0);
+
+            header('Content-Type: application/json');
+
+            echo json_encode([
+                'success' => true,
+                'started' => true,
+                'batchId' => $batchId
+            ]);
+
+            if (function_exists('fastcgi_finish_request')) {
+
+                fastcgi_finish_request();
+
+            } else {
+
+                @ob_end_flush();
+
+                flush();
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | SKUS
+            |--------------------------------------------------------------------------
+            */
+
+            $decodedSkus =
+                $skus;
+
+            /*
+            |--------------------------------------------------------------------------
+            | TOTAL PRODUCTS
+            |--------------------------------------------------------------------------
+            */
+
+            $totalCollection =
+                $this->productCollectionFactory
+                    ->create();
+
+            if (!empty($decodedSkus)) {
+
+                $totalCollection
+                    ->addFieldToFilter(
+                        'sku',
+                        [
+                            'in' => $decodedSkus
+                        ]
                     );
+            }
+
+            $total =
+                (int)$totalCollection
+                    ->getSize();
+
+            unset($totalCollection);
+
+            $processed = 0;
+
+            /*
+            |--------------------------------------------------------------------------
+            | UPDATE TOTAL
+            |--------------------------------------------------------------------------
+            */
+
+            $this->writeStatus(
+                $statusFile,
+                true,
+                $processed,
+                $total
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | PRODUCT IDS
+            |--------------------------------------------------------------------------
+            */
+
+            $productIds = [];
+
+            /*
+            |--------------------------------------------------------------------------
+            | PAGINATION
+            |--------------------------------------------------------------------------
+            */
+
+            $pageSize = 500;
+
+            $currentPage = 1;
+
+            do {
+
+                $collection =
+                    $this->productCollectionFactory
+                        ->create();
+
+                $collection
+                    ->addAttributeToSelect([
+                        'name',
+                        'url_key'
+                    ])
+                    ->setPageSize($pageSize)
+                    ->setCurPage($currentPage);
+
+                if (!empty($decodedSkus)) {
+
+                    $collection
+                        ->addFieldToFilter(
+                            'sku',
+                            [
+                                'in' => $decodedSkus
+                            ]
+                        );
+                }
+
+                foreach (
+                    $collection
+                    as $product
+                ) {
+
+                    try {
+
+                        $productIds[] =
+                            (int)$product->getId();
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | URL KEY CHECK
+                        |--------------------------------------------------------------------------
+                        */
+
+                        if (
+                            !$product->getUrlKey()
+                        ) {
+
+                            $processed++;
+
+                            $this->writeStatus(
+                                $statusFile,
+                                true,
+                                $processed,
+                                $total
+                            );
+
+                            continue;
+                        }
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | URL REWRITES
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $rewrites =
+                            $this->urlRewriteGenerator
+                                ->generate($product);
+
+                        if (
+                            !empty($rewrites)
+                        ) {
+
+                            $this->urlPersist
+                                ->replace(
+                                    $rewrites
+                                );
+                        }
+
+                    } catch (\Throwable $e) {
+
+                        $this->logger->error(
+                            sprintf(
+                                '[SKU: %s] %s',
+                                $product->getSku(),
+                                $e->getMessage()
+                            )
+                        );
+                    }
+
+                    $processed++;
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | STATUS UPDATE
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $this->writeStatus(
+                        $statusFile,
+                        true,
+                        $processed,
+                        $total
+                    );
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | FREE MEMORY
+                |--------------------------------------------------------------------------
+                */
+
+                $collection->clear();
+
+                unset($collection);
+
+                gc_collect_cycles();
+
+                $currentPage++;
+
+            } while (
+                $currentPage
+                <= ceil($total / $pageSize)
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | INDEXERS
+            |--------------------------------------------------------------------------
+            */
+
+            if (!empty($productIds)) {
+
+                $chunks =
+                    array_chunk(
+                        $productIds,
+                        1000
+                    );
+
+                $indexers = [
+
+                    'catalog_category_product',
+
+                    'catalog_product_category',
+
+                    'cataloginventory_stock'
+
+                    // 'catalogsearch_fulltext'
+                ];
+
+                foreach (
+                    $indexers
+                    as $indexerId
+                ) {
+
+                    try {
+
+                        $indexer =
+                            $this->indexerRegistry
+                                ->get(
+                                    $indexerId
+                                );
+
+                        foreach (
+                            $chunks
+                            as $chunk
+                        ) {
+
+                            $indexer
+                                ->reindexList(
+                                    $chunk
+                                );
+                        }
+
+                    } catch (\Throwable $e) {
+
+                        $this->logger->error(
+                            sprintf(
+                                '[INDEXER: %s] %s',
+                                $indexerId,
+                                $e->getMessage()
+                            )
+                        );
+                    }
                 }
             }
 
             /*
             |--------------------------------------------------------------------------
-            | STOCK REINDEX
+            | CACHE CLEAN
             |--------------------------------------------------------------------------
             */
 
-            $basePath = escapeshellarg(BP);
+            $cacheTypes = [
 
-            $output = [];
-            $returnCode = 0;
+                'full_page',
 
-            exec(
-                'cd '
-                . $basePath
-                . ' && php bin/magento indexer:reindex cataloginventory_stock 2>&1',
-                $output,
-                $returnCode
-            );
+                'block_html',
 
-            $this->logger->info(
-                implode("\n", $output)
-            );
+                'collections',
 
-            /*
-            |--------------------------------------------------------------------------
-            | PRODUCT COLLECTION
-            |--------------------------------------------------------------------------
-            */
+                'reflection'
+            ];
 
-            $collection =
-                $this->productCollectionFactory
-                    ->create();
-
-            $collection
-                ->addAttributeToSelect([
-                    'name',
-                    'url_key'
-                ]);
-
-            /*
-            |--------------------------------------------------------------------------
-            | FILTER SKU
-            |--------------------------------------------------------------------------
-            */
-
-            if (!empty($decodedSkus)) {
-
-                $collection->addFieldToFilter(
-                    'sku',
-                    [
-                        'in' => $decodedSkus
-                    ]
-                );
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | URL REWRITE GENERATION
-            |--------------------------------------------------------------------------
-            */
-
-            foreach ($collection as $product) {
+            foreach (
+                $cacheTypes
+                as $cacheType
+            ) {
 
                 try {
 
-                    $rewrites =
-                        $this->urlRewriteGenerator
-                            ->generate($product);
-
-                    if (!empty($rewrites)) {
-
-                        $this->urlPersist
-                            ->replace($rewrites);
-                    }
+                    $this->cacheTypeList
+                        ->cleanType(
+                            $cacheType
+                        );
 
                 } catch (\Throwable $e) {
 
                     $this->logger->error(
                         sprintf(
-                            '[%s] %s',
-                            $product->getSku(),
+                            '[CACHE: %s] %s',
+                            $cacheType,
                             $e->getMessage()
                         )
                     );
@@ -151,61 +425,79 @@ class Reindex implements ReindexInterface
 
             /*
             |--------------------------------------------------------------------------
-            | CACHE FLUSH
+            | COMPLETE STATUS
             |--------------------------------------------------------------------------
             */
 
-            exec(
-                'cd '
-                . $basePath
-                . ' && php bin/magento cache:flush 2>&1',
-                $output,
-                $returnCode
+            file_put_contents(
+                $statusFile,
+                json_encode([
+                    'running' => false,
+                    'processed' => $total,
+                    'total' => $total,
+                    'percent' => 100,
+                    'updated_at' =>
+                        date(
+                            'Y-m-d H:i:s'
+                        )
+                ])
             );
-
-            /*
-            |--------------------------------------------------------------------------
-            | CACHE CLEAN
-            |--------------------------------------------------------------------------
-            */
-
-            $types = [
-                'full_page',
-                'block_html'
-            ];
-
-            foreach ($types as $type) {
-
-                $this->cacheTypeList
-                    ->cleanType($type);
-            }
-
-            foreach (
-                $this->cacheFrontendPool
-                as $cacheFrontend
-            ) {
-
-                $cacheFrontend
-                    ->getBackend()
-                    ->clean();
-            }
-
-            return json_encode([
-                'success' => true,
-                'products' =>
-                    !empty($decodedSkus)
-                        ? count($decodedSkus)
-                        : 'all'
-            ]);
 
         } catch (\Throwable $e) {
 
             $this->logger->critical($e);
 
-            return json_encode([
-                'success' => false,
-                'message' => $e->getMessage()
-            ]);
+            file_put_contents(
+                $statusFile,
+                json_encode([
+                    'running' => false,
+                    'error' => true,
+                    'message' =>
+                        $e->getMessage(),
+                    'updated_at' =>
+                        date(
+                            'Y-m-d H:i:s'
+                        )
+                ])
+            );
         }
+    }
+
+    /**
+     * @param string $statusFile
+     * @param bool $running
+     * @param int $processed
+     * @param int $total
+     * @return void
+     */
+    private function writeStatus(
+        string $statusFile,
+        bool $running,
+        int $processed,
+        int $total
+    ): void {
+
+        file_put_contents(
+            $statusFile,
+            json_encode([
+                'running' => $running,
+                'processed' => $processed,
+                'total' => $total,
+                'percent' =>
+                    $total > 0
+                        ? round(
+                            (
+                                $processed
+                                / $total
+                            ) * 100,
+                            2
+                        )
+                        : 0,
+                'updated_at' =>
+                    date(
+                        'Y-m-d H:i:s'
+                    )
+            ])
+        );
     }
 }

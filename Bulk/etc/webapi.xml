@@ -54,4 +54,17 @@
             <resource ref="anonymous"/>
         </resources>
     </route>
+
+    <route
+        url="/V1/heron/reindex-status/:batchId"
+        method="GET">
+
+        <service
+            class="Heron\Bulk\Api\ReindexStatusInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
 </routes>

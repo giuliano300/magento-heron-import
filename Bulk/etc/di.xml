@@ -19,4 +19,8 @@
         for="Heron\Bulk\Api\ImagesInterface"
         type="Heron\Bulk\Model\Images"/>
 
+    <preference
+        for="Heron\Bulk\Api\ReindexStatusInterface"
+        type="Heron\Bulk\Model\ReindexStatus"/>
+
 </config>
