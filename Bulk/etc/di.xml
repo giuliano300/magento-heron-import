@@ -23,4 +23,16 @@
         for="Heron\Bulk\Api\ReindexStatusInterface"
         type="Heron\Bulk\Model\ReindexStatus"/>
 
+    <preference
+        for="Heron\Bulk\Api\CleanIndexInterface"
+        type="Heron\Bulk\Model\CleanIndex"/>
+
+    <preference
+        for="Heron\Bulk\Api\CleanCacheInterface"
+        type="Heron\Bulk\Model\CleanCache"/>
+
+    <preference
+        for="Heron\Bulk\Api\DeleteProductsInterface"
+        type="Heron\Bulk\Model\DeleteProducts"/>
+
 </config>

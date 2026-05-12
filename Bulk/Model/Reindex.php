@@ -340,9 +340,9 @@ class Reindex implements ReindexInterface
 
                     'catalog_product_category',
 
-                    'cataloginventory_stock'
+                    'cataloginventory_stock',
 
-                    // 'catalogsearch_fulltext'
+                    'catalogsearch_fulltext'
                 ];
 
                 foreach (
@@ -357,6 +357,35 @@ class Reindex implements ReindexInterface
                                 ->get(
                                     $indexerId
                                 );
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | CATEGORY INDEXERS
+                        |--------------------------------------------------------------------------
+                        */
+
+                        if (
+                            in_array(
+                                $indexerId,
+                                [
+                                    'catalog_category_product',
+                                    'catalog_product_category',
+                                     'catalogsearch_fulltext'
+                                ]
+                            )
+                        ) {
+
+                            $indexer
+                                ->reindexAll();
+
+                            continue;
+                        }
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | PARTIAL INDEXERS
+                        |--------------------------------------------------------------------------
+                        */
 
                         foreach (
                             $chunks

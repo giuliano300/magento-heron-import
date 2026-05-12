@@ -67,4 +67,42 @@
             <resource ref="anonymous"/>
         </resources>
     </route>
+
+    <route url="/V1/heron/clean-index" method="POST">
+        <service
+            class="Heron\Bulk\Api\CleanIndexInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route
+        url="/V1/heron/clean-cache"
+        method="POST">
+
+        <service
+            class="Heron\Bulk\Api\CleanCacheInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+
+    </route>
+
+    <route
+        url="/V1/heron/delete-products"
+        method="POST">
+
+        <service
+            class="Heron\Bulk\Api\DeleteProductsInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+
+    </route>
 </routes>
