@@ -4,7 +4,6 @@ namespace Heron\Bulk\Model;
 
 use Heron\Bulk\Api\ReindexInterface;
 use Magento\Framework\App\Cache\TypeListInterface;
-use Magento\Framework\Indexer\IndexerRegistry;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\CatalogUrlRewrite\Model\ProductUrlRewriteGenerator;
 use Magento\UrlRewrite\Model\UrlPersistInterface;
@@ -22,15 +21,12 @@ class Reindex implements ReindexInterface
 
     private UrlPersistInterface $urlPersist;
 
-    private IndexerRegistry $indexerRegistry;
-
     public function __construct(
         TypeListInterface $cacheTypeList,
         LoggerInterface $logger,
         CollectionFactory $productCollectionFactory,
         ProductUrlRewriteGenerator $urlRewriteGenerator,
-        UrlPersistInterface $urlPersist,
-        IndexerRegistry $indexerRegistry
+        UrlPersistInterface $urlPersist
     ) {
         $this->cacheTypeList =
             $cacheTypeList;
@@ -46,9 +42,6 @@ class Reindex implements ReindexInterface
 
         $this->urlPersist =
             $urlPersist;
-
-        $this->indexerRegistry =
-            $indexerRegistry;
     }
 
     public function execute(
@@ -130,15 +123,6 @@ class Reindex implements ReindexInterface
 
             /*
             |--------------------------------------------------------------------------
-            | SKUS
-            |--------------------------------------------------------------------------
-            */
-
-            $decodedSkus =
-                $skus;
-
-            /*
-            |--------------------------------------------------------------------------
             | TOTAL PRODUCTS
             |--------------------------------------------------------------------------
             */
@@ -147,13 +131,13 @@ class Reindex implements ReindexInterface
                 $this->productCollectionFactory
                     ->create();
 
-            if (!empty($decodedSkus)) {
+            if (!empty($skus)) {
 
                 $totalCollection
                     ->addFieldToFilter(
                         'sku',
                         [
-                            'in' => $decodedSkus
+                            'in' => $skus
                         ]
                     );
             }
@@ -164,34 +148,13 @@ class Reindex implements ReindexInterface
 
             unset($totalCollection);
 
+            /*
+            |--------------------------------------------------------------------------
+            | PRODUCTS
+            |--------------------------------------------------------------------------
+            */
+
             $processed = 0;
-
-            /*
-            |--------------------------------------------------------------------------
-            | UPDATE TOTAL
-            |--------------------------------------------------------------------------
-            */
-
-            $this->writeStatus(
-                $statusFile,
-                true,
-                $processed,
-                $total
-            );
-
-            /*
-            |--------------------------------------------------------------------------
-            | PRODUCT IDS
-            |--------------------------------------------------------------------------
-            */
-
-            $productIds = [];
-
-            /*
-            |--------------------------------------------------------------------------
-            | PAGINATION
-            |--------------------------------------------------------------------------
-            */
 
             $pageSize = 500;
 
@@ -211,67 +174,40 @@ class Reindex implements ReindexInterface
                     ->setPageSize($pageSize)
                     ->setCurPage($currentPage);
 
-                if (!empty($decodedSkus)) {
+                if (!empty($skus)) {
 
                     $collection
                         ->addFieldToFilter(
                             'sku',
                             [
-                                'in' => $decodedSkus
+                                'in' => $skus
                             ]
                         );
                 }
 
-                foreach (
-                    $collection
-                    as $product
-                ) {
+                foreach ($collection as $product) {
 
                     try {
 
-                        $productIds[] =
-                            (int)$product->getId();
-
                         /*
                         |--------------------------------------------------------------------------
-                        | URL KEY CHECK
+                        | URL REWRITE
                         |--------------------------------------------------------------------------
                         */
 
                         if (
-                            !$product->getUrlKey()
+                            $product->getUrlKey()
                         ) {
 
-                            $processed++;
+                            $rewrites =
+                                $this->urlRewriteGenerator
+                                    ->generate($product);
 
-                            $this->writeStatus(
-                                $statusFile,
-                                true,
-                                $processed,
-                                $total
-                            );
+                            if (!empty($rewrites)) {
 
-                            continue;
-                        }
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | URL REWRITES
-                        |--------------------------------------------------------------------------
-                        */
-
-                        $rewrites =
-                            $this->urlRewriteGenerator
-                                ->generate($product);
-
-                        if (
-                            !empty($rewrites)
-                        ) {
-
-                            $this->urlPersist
-                                ->replace(
-                                    $rewrites
-                                );
+                                $this->urlPersist
+                                    ->replace($rewrites);
+                            }
                         }
 
                     } catch (\Throwable $e) {
@@ -301,12 +237,6 @@ class Reindex implements ReindexInterface
                     );
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | FREE MEMORY
-                |--------------------------------------------------------------------------
-                */
-
                 $collection->clear();
 
                 unset($collection);
@@ -322,94 +252,22 @@ class Reindex implements ReindexInterface
 
             /*
             |--------------------------------------------------------------------------
-            | INDEXERS
+            | CLI REINDEX
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($productIds)) {
+            $command =
+                'cd '
+                . BP
+                . ' && php bin/magento indexer:reindex '
+                . 'catalog_category_product '
+                . 'catalog_product_category '
+                . 'catalog_product_price '
+                . 'cataloginventory_stock '
+                . 'catalogsearch_fulltext '
+                . '> /dev/null 2>&1';
 
-                $chunks =
-                    array_chunk(
-                        $productIds,
-                        1000
-                    );
-
-                $indexers = [
-
-                    'catalog_category_product',
-
-                    'catalog_product_category',
-
-                    'cataloginventory_stock',
-
-                    'catalogsearch_fulltext'
-                ];
-
-                foreach (
-                    $indexers
-                    as $indexerId
-                ) {
-
-                    try {
-
-                        $indexer =
-                            $this->indexerRegistry
-                                ->get(
-                                    $indexerId
-                                );
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | CATEGORY INDEXERS
-                        |--------------------------------------------------------------------------
-                        */
-
-                        if (
-                            in_array(
-                                $indexerId,
-                                [
-                                    'catalog_category_product',
-                                    'catalog_product_category',
-                                     'catalogsearch_fulltext'
-                                ]
-                            )
-                        ) {
-
-                            $indexer
-                                ->reindexAll();
-
-                            continue;
-                        }
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | PARTIAL INDEXERS
-                        |--------------------------------------------------------------------------
-                        */
-
-                        foreach (
-                            $chunks
-                            as $chunk
-                        ) {
-
-                            $indexer
-                                ->reindexList(
-                                    $chunk
-                                );
-                        }
-
-                    } catch (\Throwable $e) {
-
-                        $this->logger->error(
-                            sprintf(
-                                '[INDEXER: %s] %s',
-                                $indexerId,
-                                $e->getMessage()
-                            )
-                        );
-                    }
-                }
-            }
+            exec($command);
 
             /*
             |--------------------------------------------------------------------------
@@ -419,19 +277,32 @@ class Reindex implements ReindexInterface
 
             $cacheTypes = [
 
-                'full_page',
+                'config',
+
+                'layout',
 
                 'block_html',
 
                 'collections',
 
-                'reflection'
+                'reflection',
+
+                'db_ddl',
+
+                'compiled_config',
+
+                'eav',
+
+                'customer_notification',
+
+                'config_integration',
+
+                'config_integration_api',
+
+                'full_page'
             ];
 
-            foreach (
-                $cacheTypes
-                as $cacheType
-            ) {
+            foreach ($cacheTypes as $cacheType) {
 
                 try {
 

@@ -148,6 +148,10 @@ class BulkImportService
                 $this->attributeRepository
                     ->getAttribute('special_to_date');
 
+            $weightAttribute =
+                $this->attributeRepository
+                    ->getAttribute('weight');
+
             /*
             |--------------------------------------------------------------------------
             | EXISTING PRODUCTS
@@ -627,6 +631,45 @@ class BulkImportService
 
                             'value' =>
                                 '2035-12-31 23:59:59'
+                        ];
+                    }
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | WEIGHT
+                |--------------------------------------------------------------------------
+                */
+
+                if (isset($product['weight'])) {
+
+                    $newWeight =
+                        ((float)$product['weight']) / 1000;
+
+                    $attributeId =
+                        (int)$weightAttribute['attribute_id'];
+
+                    $current =
+                        $existingDecimal[
+                            $entityId
+                        ][
+                            $attributeId
+                        ] ?? null;
+
+                    if (
+                        $current === null ||
+                        (float)$current !== $newWeight
+                    ) {
+
+                        $decimalRows[] = [
+                            'attribute_id' =>
+                                $attributeId,
+
+                            'store_id' => 0,
+
+                            'entity_id' => $entityId,
+
+                            'value' => $newWeight
                         ];
                     }
                 }
