@@ -152,6 +152,11 @@ class BulkImportService
                 $this->attributeRepository
                     ->getAttribute('weight');
 
+
+            $taxClassAttribute =
+                $this->attributeRepository
+                    ->getAttribute('tax_class_id');
+
             /*
             |--------------------------------------------------------------------------
             | EXISTING PRODUCTS
@@ -674,6 +679,31 @@ class BulkImportService
                     }
                 }
 
+
+                /*
+                |--------------------------------------------------------------------------
+                | TAX CLASS
+                |--------------------------------------------------------------------------
+                */
+
+                if (!empty($product['vat'])) {
+
+                    $taxClassId =
+                        $this->getTaxClassIdByName(
+                            (string)$product['vat']
+                        );
+
+                    if ($taxClassId) {
+
+                        $intRows[] = [
+                            'attribute_id' => (int)$taxClassAttribute['attribute_id'],
+                            'store_id' => 0,
+                            'entity_id' => $entityId,
+                            'value' => $taxClassId
+                        ];
+                    }
+                }           
+
                 /*
                 |--------------------------------------------------------------------------
                 | STATUS
@@ -905,4 +935,31 @@ class BulkImportService
             throw $e;
         }
     }
+
+    private function getTaxClassIdByName(string $value): ?int
+    {
+        $connection =
+            $this->resource->getConnection();
+
+        $table =
+            $this->resource->getTableName(
+                'tax_class'
+            );
+
+        $result = $connection->fetchOne(
+            $connection->select()
+                ->from(
+                    $table,
+                    ['class_id']
+                )
+                ->where('class_name = ?', $value)
+                ->limit(1)
+        );
+
+        return $result
+            ? (int)$result
+            : null;
+    }
+
+    
 }
