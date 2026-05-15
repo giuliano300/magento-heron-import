@@ -35,4 +35,10 @@
         for="Heron\Bulk\Api\DeleteProductsInterface"
         type="Heron\Bulk\Model\DeleteProducts"/>
 
+    <preference
+        for="Heron\Bulk\Api\ImportImagesLocalInterface"
+        type="Heron\Bulk\Model\ImportImagesLocal"/>
+    <preference
+        for="Heron\Bulk\Api\ImportImagesStatusInterface"
+        type="Heron\Bulk\Model\ImportImagesStatus"/>
 </config>

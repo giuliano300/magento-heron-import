@@ -105,4 +105,30 @@
         </resources>
 
     </route>
+
+    <route
+        url="/V1/heron/images-local/:batchId"
+        method="POST">
+
+        <service
+            class="Heron\Bulk\Api\ImportImagesLocalInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route
+        url="/V1/heron/images-status/:batchId"
+        method="GET">
+
+        <service
+            class="Heron\Bulk\Api\ImportImagesStatusInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
 </routes>
