@@ -131,4 +131,19 @@
             <resource ref="anonymous"/>
         </resources>
     </route>
+    
+    <route
+        url="/V1/heron/update-qty"
+        method="POST">
+
+        <service
+            class="Heron\Bulk\Api\UpdateQtyInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+
+    </route>
+
 </routes>

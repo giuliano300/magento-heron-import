@@ -38,7 +38,12 @@
     <preference
         for="Heron\Bulk\Api\ImportImagesLocalInterface"
         type="Heron\Bulk\Model\ImportImagesLocal"/>
+    
     <preference
         for="Heron\Bulk\Api\ImportImagesStatusInterface"
         type="Heron\Bulk\Model\ImportImagesStatus"/>
+
+    <preference
+        for="Heron\Bulk\Api\UpdateQtyInterface"
+        type="Heron\Bulk\Model\UpdateQty"/>
 </config>
