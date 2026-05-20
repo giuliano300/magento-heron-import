@@ -269,6 +269,23 @@ class Reindex implements ReindexInterface
 
             exec($command);
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | CLEAR IMAGE CACHE
+            |--------------------------------------------------------------------------
+            */
+
+            $mediaCache =
+                BP . '/pub/media/catalog/product/cache';
+
+            if (is_dir($mediaCache)) {
+                exec(
+                    'rm -rf '
+                    . escapeshellarg($mediaCache)
+                );
+            }
+            
             /*
             |--------------------------------------------------------------------------
             | CACHE CLEAN
