@@ -5,6 +5,7 @@ namespace Heron\Bulk\Service;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\App\Filesystem\DirectoryList;
 use Psr\Log\LoggerInterface;
+use Magento\Framework\App\Cache\TypeListInterface;
 
 class ImageBulkDbImportService
 {
@@ -13,15 +14,19 @@ class ImageBulkDbImportService
     private DirectoryList $directoryList;
 
     private LoggerInterface $logger;
-
+    
+    private TypeListInterface $cacheTypeList;
+    
     public function __construct(
         ResourceConnection $resource,
         DirectoryList $directoryList,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        TypeListInterface $cacheTypeList
     ) {
         $this->resource = $resource;
         $this->directoryList = $directoryList;
         $this->logger = $logger;
+        $this->cacheTypeList = $cacheTypeList;
     }
 
     public function import(string $batchId): array
@@ -536,6 +541,23 @@ class ImageBulkDbImportService
 
                                 @unlink($oldFile);
                             }
+
+                            /*
+                            |--------------------------------------------------------------------------
+                            | DELETE RESIZED CACHE
+                            |--------------------------------------------------------------------------
+                            */
+
+                            $cacheRoot =
+                                $mediaRoot
+                                . '/cache';
+
+                            if (is_dir($cacheRoot)) {
+                                $this->deleteImageFromCache(
+                                    $cacheRoot,
+                                    basename($img['value'])
+                                );
+                            }
                         }
 
                         $cleaned[$entityId] = true;
@@ -764,6 +786,26 @@ class ImageBulkDbImportService
                             $varcharData,
                             ['value']
                         );
+
+                         /*
+                        |--------------------------------------------------------------------------
+                        | FORCE PRODUCT UPDATE
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $connection->update(
+                            $entityTable,
+                            [
+                                'updated_at' =>
+                                    date(
+                                        'Y-m-d H:i:s'
+                                    )
+                            ],
+                            [
+                                'entity_id = ?' =>
+                                    $entityId
+                            ]
+                        );
                     }
 
                     /*
@@ -882,6 +924,30 @@ class ImageBulkDbImportService
                 ]
             );
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | INVALIDATE INDEXER
+            |--------------------------------------------------------------------------
+            */
+
+            $indexerStateTable =
+                $this->resource->getTableName(
+                    'indexer_state'
+                );
+
+            $connection->update(
+                $indexerStateTable,
+                [
+                    'status' => 'invalid'
+                ],
+                [
+                    'indexer_id = ?' =>
+                        'catalog_product_attribute'
+                ]
+            );
+
+
             return [
                 'success' => true,
                 'processed' => $processed,
@@ -903,6 +969,33 @@ class ImageBulkDbImportService
                 'success' => false,
                 'message' => $e->getMessage()
             ];
+        }
+    }
+
+    private function deleteImageFromCache(
+        string $cacheRoot,
+        string $fileName
+    ): void {
+
+        $iterator =
+            new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator(
+                    $cacheRoot,
+                    \FilesystemIterator::SKIP_DOTS
+                ),
+                \RecursiveIteratorIterator::CHILD_FIRST
+            );
+
+        foreach ($iterator as $file) {
+
+            if (
+                $file->isFile() &&
+                $file->getFilename() === $fileName
+            ) {
+                @unlink(
+                    $file->getPathname()
+                );
+            }
         }
     }
 
