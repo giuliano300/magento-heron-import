@@ -157,6 +157,16 @@ class BulkImportService
                 $this->attributeRepository
                     ->getAttribute('tax_class_id');
 
+            $gestTipologiaAttribute =
+                $this->attributeRepository
+                    ->getAttribute('gest_tipologia');
+
+
+            $gestTipologiaMap =
+                $this->getAttributeOptionsMap(
+                    'gest_tipologia'
+                );
+
             /*
             |--------------------------------------------------------------------------
             | EXISTING PRODUCTS
@@ -406,9 +416,9 @@ class BulkImportService
                 ) {
 
                     $urlKeySource =
-                        $product['name']
+                        $product['sku']
                         . '-'
-                        . $product['sku'];
+                        . $product['name'];
 
                     $urlKeySource = iconv(
                         'UTF-8',
@@ -761,6 +771,40 @@ class BulkImportService
                     ];
                 }
 
+
+                /*
+                |--------------------------------------------------------------------------
+                | GEST TIPOLOGIA
+                |--------------------------------------------------------------------------
+                */
+
+                if (!empty($product['gest_tipologia'])) {
+
+                    $code = strtoupper(
+                        trim(
+                            (string)$product['gest_tipologia']
+                        )
+                    );
+
+                    $optionId =
+                        $gestTipologiaMap[$code]
+                        ?? null;
+
+                    if ($optionId) {
+
+                        $intRows[] = [
+                            'attribute_id' =>
+                                (int)$gestTipologiaAttribute['attribute_id'],
+
+                            'store_id' => 0,
+
+                            'entity_id' => $entityId,
+
+                            'value' => $optionId
+                        ];
+                    }
+                }
+
                 /*
                 |--------------------------------------------------------------------------
                 | STOCK
@@ -961,5 +1005,61 @@ class BulkImportService
             : null;
     }
 
-    
+    private function getAttributeOptionsMap(
+        string $attributeCode
+    ): array
+    {
+        $connection =
+            $this->resource->getConnection();
+
+        $attributeTable =
+            $this->resource->getTableName(
+                'eav_attribute'
+            );
+
+        $optionTable =
+            $this->resource->getTableName(
+                'eav_attribute_option'
+            );
+
+        $optionValueTable =
+            $this->resource->getTableName(
+                'eav_attribute_option_value'
+            );
+
+        $rows = $connection->fetchAll(
+            $connection->select()
+                ->from(
+                    ['a' => $attributeTable],
+                    []
+                )
+                ->join(
+                    ['o' => $optionTable],
+                    'a.attribute_id = o.attribute_id',
+                    ['option_id']
+                )
+                ->join(
+                    ['v' => $optionValueTable],
+                    'o.option_id = v.option_id',
+                    ['value']
+                )
+                ->where(
+                    'a.attribute_code = ?',
+                    $attributeCode
+                )
+        );
+
+        $map = [];
+
+        foreach ($rows as $row) {
+
+            $map[
+                strtoupper(
+                    trim($row['value'])
+                )
+            ] = (int)$row['option_id'];
+        }
+
+        return $map;
+    }
 }
