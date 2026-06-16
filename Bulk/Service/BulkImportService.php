@@ -778,11 +778,11 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                if (!empty($product['MacroGroup'])) {
+                if (!empty($product['macroGroup'])) {
 
                     $code = strtoupper(
                         trim(
-                            (string)$product['MacroGroup']
+                            (string)$product['macroGroup']
                         )
                     );
 
