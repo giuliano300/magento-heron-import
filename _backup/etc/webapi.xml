@@ -27,7 +27,7 @@
             method="import"/>
 
         <resources>
-            <resource ref="Heron_Bulk::operations"/>
+            <resource ref="anonymous"/>
         </resources>
 
     </route>
@@ -64,7 +64,7 @@
             method="execute"/>
 
         <resources>
-            <resource ref="anonymous"/>
+            <resource ref="Heron_Bulk::operations"/>
         </resources>
     </route>
 
@@ -128,7 +128,7 @@
             method="execute"/>
 
         <resources>
-            <resource ref="anonymous"/>
+            <resource ref="Heron_Bulk::operations"/>
         </resources>
     </route>
     
@@ -141,7 +141,7 @@
             method="execute"/>
 
         <resources>
-            <resource ref="Heron_Bulk::operations"/>
+            <resource ref="anonymous"/>
         </resources>
 
     </route>

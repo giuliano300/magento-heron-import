@@ -5,7 +5,10 @@ namespace Heron\Bulk\Api;
 interface DeleteProductsInterface
 {
     /**
+     * @param string $confirmationCode
      * @return string
      */
-    public function execute();
+    public function execute(
+        string $confirmationCode = ''
+    );
 }

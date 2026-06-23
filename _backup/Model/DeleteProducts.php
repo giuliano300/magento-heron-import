@@ -5,40 +5,25 @@ namespace Heron\Bulk\Model;
 use Heron\Bulk\Api\DeleteProductsInterface;
 use Magento\Framework\App\ResourceConnection;
 use Psr\Log\LoggerInterface;
-use Heron\Bulk\Service\MagentoCommandService;
 
 class DeleteProducts implements DeleteProductsInterface
 {
     private ResourceConnection $resource;
     private LoggerInterface $logger;
-    private MagentoCommandService $magentoCommandService;
 
     public function __construct(
         ResourceConnection $resource,
-        LoggerInterface $logger,
-        MagentoCommandService $magentoCommandService
+        LoggerInterface $logger
     ) {
         $this->resource = $resource;
         $this->logger = $logger;
-        $this->magentoCommandService = $magentoCommandService;
     }
 
-    public function execute(
-        string $confirmationCode = ''
-    )
+    public function execute()
     {
         $connection = $this->resource->getConnection();
 
         try {
-
-            if ($confirmationCode !== 'DELETE_ALL_PRODUCTS') {
-
-                return json_encode([
-                    'success' => false,
-                    'message' => 'Codice conferma non valido'
-                ]);
-            }
-
             $productTable = $this->resource->getTableName('catalog_product_entity');
             $urlRewriteTable = $this->resource->getTableName('url_rewrite');
             $eavEntityStoreTable = $this->resource->getTableName('eav_entity_store');
@@ -121,15 +106,8 @@ class DeleteProducts implements DeleteProductsInterface
             |--------------------------------------------------------------------------
             */
 
-            $this->magentoCommandService
-                ->run([
-                    'indexer:reindex'
-                ]);
-
-            $this->magentoCommandService
-                ->run([
-                    'cache:flush'
-                ]);
+            $this->runMagentoCommand('indexer:reindex');
+            $this->runMagentoCommand('cache:flush');
 
             return json_encode([
                 'success' => true,
@@ -163,4 +141,19 @@ class DeleteProducts implements DeleteProductsInterface
         }
     }
 
+    private function runMagentoCommand(string $command): void
+    {
+        try {
+            $root = BP;
+            $cmd = "php {$root}/bin/magento {$command} 2>&1";
+
+            $output = shell_exec($cmd);
+
+            $this->logger->info("[MAGENTO COMMAND] {$cmd}");
+            $this->logger->info("[MAGENTO OUTPUT] " . $output);
+
+        } catch (\Throwable $e) {
+            $this->logger->warning("[MAGENTO COMMAND ERROR] {$command}: " . $e->getMessage());
+        }
+    }
 }

@@ -20,14 +20,6 @@ class ImportImagesLocal
         string $batchId
     ): array {
 
-        if (!preg_match('/^[a-zA-Z0-9\-_]+$/', $batchId)) {
-
-            return [
-                'success' => false,
-                'message' => 'Batch ID non valido'
-            ];
-        }
-
         /*
         |--------------------------------------------------------------------------
         | IMPORT DIR

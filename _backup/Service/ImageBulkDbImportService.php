@@ -16,33 +16,21 @@ class ImageBulkDbImportService
     private LoggerInterface $logger;
     
     private TypeListInterface $cacheTypeList;
-
-    private MagentoCommandService $magentoCommandService;
     
     public function __construct(
         ResourceConnection $resource,
         DirectoryList $directoryList,
         LoggerInterface $logger,
-        TypeListInterface $cacheTypeList,
-        MagentoCommandService $magentoCommandService
+        TypeListInterface $cacheTypeList
     ) {
         $this->resource = $resource;
         $this->directoryList = $directoryList;
         $this->logger = $logger;
         $this->cacheTypeList = $cacheTypeList;
-        $this->magentoCommandService = $magentoCommandService;
     }
 
     public function import(string $batchId): array
     {
-        if (!preg_match('/^[a-zA-Z0-9\-_]+$/', $batchId)) {
-
-            return [
-                'success' => false,
-                'message' => 'Batch ID non valido'
-            ];
-        }
-
         $this->logger->info(
             'IMAGE IMPORT START',
             [
@@ -121,36 +109,6 @@ class ImageBulkDbImportService
             $attributes
         );
 
-        $missingAttributes =
-            array_diff(
-                [
-                    'image',
-                    'small_image',
-                    'thumbnail',
-                    'media_gallery'
-                ],
-                array_keys($attributes)
-            );
-
-        if (!empty($missingAttributes)) {
-
-            $message =
-                'Attributi immagini mancanti: '
-                . implode(
-                    ', ',
-                    $missingAttributes
-                );
-
-            $this->logger->critical(
-                $message
-            );
-
-            return [
-                'success' => false,
-                'message' => $message
-            ];
-        }
-
         $imageAttributeId =
             (int)$attributes['image'];
 
@@ -227,15 +185,6 @@ class ImageBulkDbImportService
             . $batchId
             . '.errors.log';
 
-        if (!is_dir($logDir)) {
-
-            mkdir(
-                $logDir,
-                0777,
-                true
-            );
-        }
-
         /*
         |--------------------------------------------------------------------------
         | ZIP EXISTS
@@ -299,17 +248,9 @@ class ImageBulkDbImportService
             ];
         }
 
-        try {
+        $zip->extractTo($extractPath);
 
-            $this->extractZipSafely(
-                $zip,
-                $extractPath
-            );
-
-        } finally {
-
-            $zip->close();
-        }
+        $zip->close();
 
         $this->logger->info(
             'ZIP EXTRACTED'
@@ -332,10 +273,6 @@ class ImageBulkDbImportService
                 $file === '.' ||
                 $file === '..'
             ) {
-                continue;
-            }
-
-            if (!is_file($extractPath . '/' . $file)) {
                 continue;
             }
 
@@ -1016,23 +953,19 @@ class ImageBulkDbImportService
             |--------------------------------------------------------------------------
             */
 
-            $this->magentoCommandService
-                ->run([
-                    'indexer:reindex',
-                    'catalog_product_attribute'
-                ]);
+            $this->runMagentoCommand(
+                'indexer:reindex catalog_product_attribute'
+            );
 
             $this->clearCatalogImageCache();
 
-            $this->magentoCommandService
-                ->run([
-                    'catalog:images:resize'
-                ]);
+            $this->runMagentoCommand(
+                'catalog:images:resize'
+            );
 
-            $this->magentoCommandService
-                ->run([
-                    'cache:flush'
-                ]);
+            $this->runMagentoCommand(
+                'cache:flush'
+            );
 
             return [
                 'success' => true,
@@ -1085,94 +1018,6 @@ class ImageBulkDbImportService
         }
     }
 
-    private function extractZipSafely(
-        \ZipArchive $zip,
-        string $extractPath
-    ): void {
-
-        $basePath =
-            realpath($extractPath);
-
-        if ($basePath === false) {
-
-            throw new \RuntimeException(
-                'Cartella estrazione non valida'
-            );
-        }
-
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-
-            $entryName =
-                $zip->getNameIndex($i);
-
-            if (
-                $entryName === false ||
-                substr($entryName, -1) === '/'
-            ) {
-                continue;
-            }
-
-            $normalizedName =
-                str_replace(
-                    '\\',
-                    '/',
-                    $entryName
-                );
-
-            if (
-                strpos($normalizedName, '../') !== false ||
-                strpos($normalizedName, '/') === 0 ||
-                preg_match('/^[a-zA-Z]:\//', $normalizedName)
-            ) {
-
-                throw new \RuntimeException(
-                    'ZIP contiene percorso non valido: '
-                    . $entryName
-                );
-            }
-
-            $targetFile =
-                $basePath
-                . DIRECTORY_SEPARATOR
-                . basename($normalizedName);
-
-            $stream =
-                $zip->getStream($entryName);
-
-            if ($stream === false) {
-
-                throw new \RuntimeException(
-                    'Errore lettura file ZIP: '
-                    . $entryName
-                );
-            }
-
-            $target =
-                fopen(
-                    $targetFile,
-                    'wb'
-                );
-
-            if ($target === false) {
-
-                fclose($stream);
-
-                throw new \RuntimeException(
-                    'Errore scrittura file ZIP: '
-                    . $entryName
-                );
-            }
-
-            stream_copy_to_stream(
-                $stream,
-                $target
-            );
-
-            fclose($stream);
-            fclose($target);
-        }
-    }
-
     private function getMagentoImagePath(
         string $file
     ): string {
@@ -1186,6 +1031,41 @@ class ImageBulkDbImportService
             $hash[1],
             $file
         );
+    }
+
+    private function runMagentoCommand(
+        string $command
+    ): void {
+
+        try {
+
+            $cmd =
+                'cd '
+                . escapeshellarg(BP)
+                . ' && php bin/magento '
+                . $command
+                . ' 2>&1';
+
+            $output =
+                shell_exec($cmd);
+
+            $this->logger->info(
+                '[MAGENTO COMMAND] ' . $cmd
+            );
+
+            $this->logger->info(
+                '[MAGENTO OUTPUT] ' . $output
+            );
+
+        } catch (\Throwable $e) {
+
+            $this->logger->warning(
+                '[MAGENTO COMMAND ERROR] '
+                . $command
+                . ': '
+                . $e->getMessage()
+            );
+        }
     }
 
     private function clearCatalogImageCache(): void

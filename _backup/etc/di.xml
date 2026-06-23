@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+
+    <preference
+        for="Heron\Bulk\Api\PingInterface"
+        type="Heron\Bulk\Model\Ping"/>
+
+    <preference
+        for="Heron\Bulk\Api\ImportInterface"
+        type="Heron\Bulk\Model\Import"/>
+
+    <preference
+        for="Heron\Bulk\Api\ReindexInterface"
+        type="Heron\Bulk\Model\Reindex"/>
+
+    <preference
+        for="Heron\Bulk\Api\ImagesInterface"
+        type="Heron\Bulk\Model\Images"/>
+
+    <preference
+        for="Heron\Bulk\Api\ReindexStatusInterface"
+        type="Heron\Bulk\Model\ReindexStatus"/>
+
+    <preference
+        for="Heron\Bulk\Api\CleanIndexInterface"
+        type="Heron\Bulk\Model\CleanIndex"/>
+
+    <preference
+        for="Heron\Bulk\Api\CleanCacheInterface"
+        type="Heron\Bulk\Model\CleanCache"/>
+
+    <preference
+        for="Heron\Bulk\Api\DeleteProductsInterface"
+        type="Heron\Bulk\Model\DeleteProducts"/>
+
+    <preference
+        for="Heron\Bulk\Api\ImportImagesLocalInterface"
+        type="Heron\Bulk\Model\ImportImagesLocal"/>
+    
+    <preference
+        for="Heron\Bulk\Api\ImportImagesStatusInterface"
+        type="Heron\Bulk\Model\ImportImagesStatus"/>
+
+    <preference
+        for="Heron\Bulk\Api\UpdateQtyInterface"
+        type="Heron\Bulk\Model\UpdateQty"/>
+</config>

@@ -8,7 +8,6 @@ use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\CatalogUrlRewrite\Model\ProductUrlRewriteGenerator;
 use Magento\UrlRewrite\Model\UrlPersistInterface;
 use Psr\Log\LoggerInterface;
-use Heron\Bulk\Service\MagentoCommandService;
 
 class Reindex implements ReindexInterface
 {
@@ -22,15 +21,12 @@ class Reindex implements ReindexInterface
 
     private UrlPersistInterface $urlPersist;
 
-    private MagentoCommandService $magentoCommandService;
-
     public function __construct(
         TypeListInterface $cacheTypeList,
         LoggerInterface $logger,
         CollectionFactory $productCollectionFactory,
         ProductUrlRewriteGenerator $urlRewriteGenerator,
-        UrlPersistInterface $urlPersist,
-        MagentoCommandService $magentoCommandService
+        UrlPersistInterface $urlPersist
     ) {
         $this->cacheTypeList =
             $cacheTypeList;
@@ -46,9 +42,6 @@ class Reindex implements ReindexInterface
 
         $this->urlPersist =
             $urlPersist;
-
-        $this->magentoCommandService =
-            $magentoCommandService;
     }
 
     public function execute(
@@ -263,16 +256,19 @@ class Reindex implements ReindexInterface
             |--------------------------------------------------------------------------
             */
 
-            $this->magentoCommandService
-                ->run([
-                    'indexer:reindex',
-                    'catalog_category_product',
-                    'catalog_product_category',
-                    'catalog_product_price',
-                    'catalog_product_attribute',
-                    'cataloginventory_stock',
-                    'catalogsearch_fulltext'
-                ]);
+            $command =
+                'cd '
+                . BP
+                . ' && php bin/magento indexer:reindex '
+                . 'catalog_category_product '
+                . 'catalog_product_category '
+                . 'catalog_product_price '
+                . 'catalog_product_attribute '
+                . 'cataloginventory_stock '
+                . 'catalogsearch_fulltext '
+                . '> /dev/null 2>&1';
+
+            exec($command);
 
 
             /*
@@ -285,8 +281,9 @@ class Reindex implements ReindexInterface
                 BP . '/pub/media/catalog/product/cache';
 
             if (is_dir($mediaCache)) {
-                $this->deleteDirectoryContents(
-                    $mediaCache
+                exec(
+                    'rm -rf '
+                    . escapeshellarg($mediaCache)
                 );
             }
             
@@ -420,35 +417,5 @@ class Reindex implements ReindexInterface
                     )
             ])
         );
-    }
-
-    private function deleteDirectoryContents(
-        string $path
-    ): void {
-
-        $iterator =
-            new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator(
-                    $path,
-                    \FilesystemIterator::SKIP_DOTS
-                ),
-                \RecursiveIteratorIterator::CHILD_FIRST
-            );
-
-        foreach ($iterator as $file) {
-
-            if ($file->isDir()) {
-
-                @rmdir(
-                    $file->getPathname()
-                );
-
-                continue;
-            }
-
-            @unlink(
-                $file->getPathname()
-            );
-        }
     }
 }
