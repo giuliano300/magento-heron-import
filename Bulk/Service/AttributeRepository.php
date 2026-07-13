@@ -10,6 +10,8 @@ class AttributeRepository
 
     private array $cache = [];
 
+    private ?int $productEntityTypeId = null;
+
     public function __construct(
         ResourceConnection $resource
     ) {
@@ -18,7 +20,7 @@ class AttributeRepository
 
     public function getAttribute(string $code): ?array
     {
-        if (isset($this->cache[$code])) {
+        if (array_key_exists($code, $this->cache)) {
             return $this->cache[$code];
         }
 
@@ -31,12 +33,53 @@ class AttributeRepository
         $select = $connection->select()
             ->from($table)
             ->where('attribute_code = ?', $code)
-            ->where('entity_type_id = 4');
+            ->where(
+                'entity_type_id = ?',
+                $this->getProductEntityTypeId()
+            );
 
         $attribute = $connection->fetchRow($select);
 
-        $this->cache[$code] = $attribute;
+        $this->cache[$code] = is_array($attribute)
+            ? $attribute
+            : null;
 
-        return $attribute;
+        return $this->cache[$code];
+    }
+
+    private function getProductEntityTypeId(): int
+    {
+        if ($this->productEntityTypeId !== null) {
+            return $this->productEntityTypeId;
+        }
+
+        $connection = $this->resource->getConnection();
+
+        $table = $this->resource->getTableName(
+            'eav_entity_type'
+        );
+
+        $entityTypeId = $connection->fetchOne(
+            $connection->select()
+                ->from(
+                    $table,
+                    ['entity_type_id']
+                )
+                ->where(
+                    'entity_type_code = ?',
+                    'catalog_product'
+                )
+                ->limit(1)
+        );
+
+        if (!$entityTypeId) {
+            throw new \RuntimeException(
+                'Entity type catalog_product non trovato'
+            );
+        }
+
+        $this->productEntityTypeId = (int)$entityTypeId;
+
+        return $this->productEntityTypeId;
     }
 }

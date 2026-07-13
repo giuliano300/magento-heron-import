@@ -93,79 +93,64 @@ class BulkImportService
             */
 
             $nameAttribute =
-                $this->attributeRepository
-                    ->getAttribute('name');
+                $this->getRequiredAttribute('name');
 
             $priceAttribute =
-                $this->attributeRepository
-                    ->getAttribute('price');
+                $this->getRequiredAttribute('price');
 
             $specialPriceAttribute =
-                $this->attributeRepository
-                    ->getAttribute('special_price');
+                $this->getOptionalAttribute('special_price');
 
             $descriptionAttribute =
-                $this->attributeRepository
-                    ->getAttribute('description');
+                $this->getOptionalAttribute('description');
 
             $shortDescriptionAttribute =
-                $this->attributeRepository
-                    ->getAttribute('short_description');
+                $this->getOptionalAttribute('short_description');
 
             $siteDescriptionAttribute =
-                $this->attributeRepository
-                    ->getAttribute('descrizione_sito');
+                $this->getOptionalAttribute('descrizione_sito');
 
             $siteShortDescriptionAttribute =
-                $this->attributeRepository
-                    ->getAttribute('descrizione_breve_sito');
+                $this->getOptionalAttribute('descrizione_breve_sito');
 
             $statusAttribute =
-                $this->attributeRepository
-                    ->getAttribute('status');
+                $this->getRequiredAttribute('status');
 
             $visibilityAttribute =
-                $this->attributeRepository
-                    ->getAttribute('visibility');
+                $this->getRequiredAttribute('visibility');
 
             $urlKeyAttribute =
-                $this->attributeRepository
-                    ->getAttribute('url_key');
+                $this->getOptionalAttribute('url_key');
 
             $manufacturerAttribute =
-                $this->attributeRepository
-                    ->getAttribute('manufacturer');
+                $this->getOptionalAttribute('manufacturer');
 
             $supplierAttribute =
-                $this->attributeRepository
-                    ->getAttribute('supplier');
+                $this->getOptionalAttribute('supplier');
 
             $specialFromDateAttribute =
-                $this->attributeRepository
-                    ->getAttribute('special_from_date');
+                $this->getOptionalAttribute('special_from_date');
 
             $specialToDateAttribute =
-                $this->attributeRepository
-                    ->getAttribute('special_to_date');
+                $this->getOptionalAttribute('special_to_date');
 
             $weightAttribute =
-                $this->attributeRepository
-                    ->getAttribute('weight');
+                $this->getOptionalAttribute('weight');
 
 
             $taxClassAttribute =
-                $this->attributeRepository
-                    ->getAttribute('tax_class_id');
+                $this->getOptionalAttribute('tax_class_id');
 
             $gestTipologiaAttribute =
-                $this->attributeRepository
-                    ->getAttribute('gest_tipologia');
+                $this->getOptionalAttribute('gest_tipologia');
 
 
             $gestTipologiaMap =
-                $this->getAttributeOptionsMap(
-                    'gest_tipologia'
-                );
+                $gestTipologiaAttribute === null
+                    ? []
+                    : $this->getAttributeOptionsMap(
+                        'gest_tipologia'
+                    );
 
             /*
             |--------------------------------------------------------------------------
@@ -443,7 +428,10 @@ class BulkImportService
                     );
                 }
 
-                if (!empty($urlKey)) {
+                if (
+                    !empty($urlKey) &&
+                    $urlKeyAttribute !== null
+                ) {
 
                     $varcharRows[] = [
                         'attribute_id' =>
@@ -463,7 +451,10 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                if (isset($product['supplier'])) {
+                if (
+                    isset($product['supplier']) &&
+                    $supplierAttribute !== null
+                ) {
 
                     $varcharRows[] = [
                         'attribute_id' =>
@@ -484,7 +475,10 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                if (isset($product['description'])) {
+                if (
+                    isset($product['description']) &&
+                    $descriptionAttribute !== null
+                ) {
 
                     $description =
                         (string)$product['description'];
@@ -500,16 +494,19 @@ class BulkImportService
                         'value' => $description
                     ];
 
-                    $textRows[] = [
-                        'attribute_id' =>
-                            (int)$siteDescriptionAttribute['attribute_id'],
+                    if ($siteDescriptionAttribute !== null) {
 
-                        'store_id' => 0,
+                        $textRows[] = [
+                            'attribute_id' =>
+                                (int)$siteDescriptionAttribute['attribute_id'],
 
-                        'entity_id' => $entityId,
+                            'store_id' => 0,
 
-                        'value' => $description
-                    ];
+                            'entity_id' => $entityId,
+
+                            'value' => $description
+                        ];
+                    }
                 }
 
                 /*
@@ -518,7 +515,10 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                if (isset($product['short_description'])) {
+                if (
+                    isset($product['short_description']) &&
+                    $shortDescriptionAttribute !== null
+                ) {
 
                     $short =
                         (string)$product['short_description'];
@@ -534,16 +534,19 @@ class BulkImportService
                         'value' => $short
                     ];
 
-                    $textRows[] = [
-                        'attribute_id' =>
-                            (int)$siteShortDescriptionAttribute['attribute_id'],
+                    if ($siteShortDescriptionAttribute !== null) {
 
-                        'store_id' => 0,
+                        $textRows[] = [
+                            'attribute_id' =>
+                                (int)$siteShortDescriptionAttribute['attribute_id'],
 
-                        'entity_id' => $entityId,
+                            'store_id' => 0,
 
-                        'value' => $short
-                    ];
+                            'entity_id' => $entityId,
+
+                            'value' => $short
+                        ];
+                    }
                 }
 
                 /*
@@ -592,7 +595,8 @@ class BulkImportService
                 */
 
                 if (isset($product['special_price']) &&
-                    (float)$product['special_price'] > 0
+                    (float)$product['special_price'] > 0 &&
+                    $specialPriceAttribute !== null
                 ) {
 
                     $newSpecial =
@@ -624,29 +628,35 @@ class BulkImportService
                             'value' => $newSpecial
                         ];
 
-                        $datetimeRows[] = [
-                            'attribute_id' =>
-                                (int)$specialFromDateAttribute['attribute_id'],
+                        if ($specialFromDateAttribute !== null) {
 
-                            'store_id' => 0,
+                            $datetimeRows[] = [
+                                'attribute_id' =>
+                                    (int)$specialFromDateAttribute['attribute_id'],
 
-                            'entity_id' => $entityId,
+                                'store_id' => 0,
 
-                            'value' =>
-                                date('Y-m-d H:i:s')
-                        ];
+                                'entity_id' => $entityId,
 
-                        $datetimeRows[] = [
-                            'attribute_id' =>
-                                (int)$specialToDateAttribute['attribute_id'],
+                                'value' =>
+                                    date('Y-m-d H:i:s')
+                            ];
+                        }
 
-                            'store_id' => 0,
+                        if ($specialToDateAttribute !== null) {
 
-                            'entity_id' => $entityId,
+                            $datetimeRows[] = [
+                                'attribute_id' =>
+                                    (int)$specialToDateAttribute['attribute_id'],
 
-                            'value' =>
-                                '2035-12-31 23:59:59'
-                        ];
+                                'store_id' => 0,
+
+                                'entity_id' => $entityId,
+
+                                'value' =>
+                                    '2035-12-31 23:59:59'
+                            ];
+                        }
                     }
                 }
 
@@ -656,7 +666,10 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                if (isset($product['weight'])) {
+                if (
+                    isset($product['weight']) &&
+                    $weightAttribute !== null
+                ) {
 
                     $newWeight =
                         ((float)$product['weight']) / 1000;
@@ -696,7 +709,10 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                if (!empty($product['vat'])) {
+                if (
+                    !empty($product['vat']) &&
+                    $taxClassAttribute !== null
+                ) {
 
                     $taxClassId =
                         $this->getTaxClassIdByName(
@@ -756,7 +772,10 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                if (isset($product['manufacturer'])) {
+                if (
+                    isset($product['manufacturer']) &&
+                    $manufacturerAttribute !== null
+                ) {
 
                     $intRows[] = [
                         'attribute_id' =>
@@ -790,7 +809,10 @@ class BulkImportService
                         $gestTipologiaMap[$code]
                         ?? null;
 
-                    if ($optionId) {
+                    if (
+                        $gestTipologiaAttribute !== null &&
+                        $optionId
+                    ) {
 
                         $intRows[] = [
                             'attribute_id' =>
@@ -1003,6 +1025,42 @@ class BulkImportService
         return $result
             ? (int)$result
             : null;
+    }
+
+    private function getRequiredAttribute(string $code): array
+    {
+        $attribute =
+            $this->attributeRepository
+                ->getAttribute($code);
+
+        if ($attribute === null) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Attributo prodotto Magento non trovato: %s',
+                    $code
+                )
+            );
+        }
+
+        return $attribute;
+    }
+
+    private function getOptionalAttribute(string $code): ?array
+    {
+        $attribute =
+            $this->attributeRepository
+                ->getAttribute($code);
+
+        if ($attribute === null) {
+            $this->logger->warning(
+                sprintf(
+                    'Attributo prodotto Magento opzionale non trovato: %s',
+                    $code
+                )
+            );
+        }
+
+        return $attribute;
     }
 
     private function getAttributeOptionsMap(
