@@ -158,19 +158,65 @@ class BulkImportService
             |--------------------------------------------------------------------------
             */
 
-            $skus = array_column($products, 'sku');
+            foreach ($products as &$product) {
 
-            $existingProducts = $connection->fetchAssoc(
-                $connection->select()
-                    ->from(
-                        $entityTable,
-                        [
-                            'sku',
-                            'entity_id'
-                        ]
-                    )
-                    ->where('sku IN (?)', $skus)
+                if (isset($product['sku'])) {
+
+                    $product['sku'] = trim(
+                        (string)$product['sku']
+                    );
+                }
+            }
+
+            unset($product);
+
+            $validSkus = [];
+            $skuOccurrences = [];
+
+            foreach ($products as $product) {
+
+                if (
+                    !isset($product['sku']) ||
+                    $product['sku'] === '' ||
+                    preg_match('/\s/', $product['sku'])
+                ) {
+                    continue;
+                }
+
+                $skuKey = strtoupper($product['sku']);
+
+                $validSkus[$product['sku']] =
+                    $product['sku'];
+
+                $skuOccurrences[$skuKey] =
+                    ($skuOccurrences[$skuKey] ?? 0) + 1;
+            }
+
+            $duplicateSkuKeys = array_filter(
+                $skuOccurrences,
+                static fn($count) => $count > 1
             );
+
+            $skus = array_values($validSkus);
+
+            $existingProducts = [];
+
+            if (!empty($skus)) {
+
+                $existingProducts = $connection->fetchAssoc(
+                    $connection->select()
+                        ->from(
+                            $entityTable,
+                            [
+                                'sku',
+                                'entity_id',
+                                'attribute_set_id',
+                                'type_id'
+                            ]
+                        )
+                        ->where('sku IN (?)', $skus)
+                );
+            }
 
             /*
             |--------------------------------------------------------------------------
@@ -179,6 +225,8 @@ class BulkImportService
             */
 
             $entityRows = [];
+            $changedSkus = [];
+            $responseIndexesBySku = [];
 
             foreach ($products as $product) {
 
@@ -189,7 +237,10 @@ class BulkImportService
 
                 try {
 
-                    if (empty($product['sku'])) {
+                    if (
+                        !isset($product['sku']) ||
+                        $product['sku'] === ''
+                    ) {
 
                         $response->success = false;
 
@@ -205,6 +256,44 @@ class BulkImportService
                         continue;
                     }
 
+                    if (preg_match('/\s/', $product['sku'])) {
+
+                        $response->success = false;
+
+                        $response->insertType =
+                            ImportResponse::ERROR;
+
+                        $response->message =
+                            'SKU non valido: contiene spazi';
+
+                        $responses[] =
+                            $response->toArray();
+
+                        continue;
+                    }
+
+                    if (
+                        isset(
+                            $duplicateSkuKeys[
+                                strtoupper($product['sku'])
+                            ]
+                        )
+                    ) {
+
+                        $response->success = false;
+
+                        $response->insertType =
+                            ImportResponse::ERROR;
+
+                        $response->message =
+                            'SKU duplicato nel payload';
+
+                        $responses[] =
+                            $response->toArray();
+
+                        continue;
+                    }
+
                     $exists =
                         isset(
                             $existingProducts[
@@ -212,27 +301,62 @@ class BulkImportService
                             ]
                         );
 
-                    $entityRows[] = [
+                    $attributeSetId =
+                        (int)($product['attribute_set_id'] ?? 4);
 
-                        'attribute_set_id' =>
-                            $product['attribute_set_id'] ?? 4,
+                    $typeId =
+                        (string)($product['type_id'] ?? 'simple');
 
-                        'type_id' =>
-                            $product['type_id'] ?? 'simple',
+                    $entityChanged = false;
 
-                        'sku' =>
-                            $product['sku'],
+                    if (
+                        !$exists ||
+                        (int)$existingProducts[
+                            $product['sku']
+                        ][
+                            'attribute_set_id'
+                        ] !== $attributeSetId ||
+                        (string)$existingProducts[
+                            $product['sku']
+                        ][
+                            'type_id'
+                        ] !== $typeId
+                    ) {
 
-                        'has_options' => 0,
+                        $entityChanged = true;
 
-                        'required_options' => 0,
+                        $entityRows[] = [
 
-                        'created_at' =>
-                            date('Y-m-d H:i:s'),
+                            'attribute_set_id' =>
+                                $attributeSetId,
 
-                        'updated_at' =>
-                            date('Y-m-d H:i:s')
-                    ];
+                            'type_id' =>
+                                $typeId,
+
+                            'sku' =>
+                                $product['sku'],
+
+                            'has_options' => 0,
+
+                            'required_options' => 0,
+
+                            'created_at' =>
+                                date('Y-m-d H:i:s'),
+
+                            'updated_at' =>
+                                date('Y-m-d H:i:s')
+                        ];
+                    }
+
+                    if (
+                        !$exists ||
+                        $entityChanged
+                    ) {
+
+                        $changedSkus[
+                            $product['sku']
+                        ] = true;
+                    }
 
                     $response->success = true;
 
@@ -259,6 +383,16 @@ class BulkImportService
 
                 $responses[] =
                     $response->toArray();
+
+                if (
+                    $response->success &&
+                    $response->insertType === ImportResponse::UPDATE
+                ) {
+
+                    $responseIndexesBySku[
+                        $product['sku']
+                    ] = count($responses) - 1;
+                }
             }
 
             if (!empty($entityRows)) {
@@ -280,18 +414,25 @@ class BulkImportService
             |--------------------------------------------------------------------------
             */
 
-            $entities =
-                $connection->fetchAssoc(
-                    $connection->select()
-                        ->from(
-                            $entityTable,
-                            [
-                                'sku',
-                                'entity_id'
-                            ]
-                        )
-                        ->where('sku IN (?)', $skus)
-                );
+            $entities = [];
+
+            if (!empty($skus)) {
+
+                $entityRows =
+                    $connection->fetchAssoc(
+                        $connection->select()
+                            ->from(
+                                $entityTable,
+                                [
+                                    'sku',
+                                    'entity_id'
+                                ]
+                            )
+                            ->where('sku IN (?)', $skus)
+                    );
+
+                $entities = $entityRows;
+            }
 
             /*
             |--------------------------------------------------------------------------
@@ -306,32 +447,117 @@ class BulkImportService
                 );
 
             $existingDecimal = [];
+            $existingVarchar = [];
+            $existingText = [];
+            $existingInt = [];
+            $existingDatetime = [];
+            $existingStock = [];
+            $existingWebsites = [];
+            $existingCategories = [];
 
             if (!empty($entityIds)) {
 
-                $rows = $connection->fetchAll(
+                $existingDecimal =
+                    $this->getExistingAttributeValues(
+                        $decimalTable,
+                        $entityIds
+                    );
+
+                $existingVarchar =
+                    $this->getExistingAttributeValues(
+                        $varcharTable,
+                        $entityIds
+                    );
+
+                $existingText =
+                    $this->getExistingAttributeValues(
+                        $textTable,
+                        $entityIds
+                    );
+
+                $existingInt =
+                    $this->getExistingAttributeValues(
+                        $intTable,
+                        $entityIds
+                    );
+
+                $existingDatetime =
+                    $this->getExistingAttributeValues(
+                        $datetimeTable,
+                        $entityIds
+                    );
+
+                $stockRowsExisting = $connection->fetchAll(
                     $connection->select()
                         ->from(
-                            $decimalTable,
+                            $stockTable,
                             [
-                                'entity_id',
-                                'attribute_id',
-                                'value'
+                                'product_id',
+                                'qty',
+                                'is_in_stock',
+                                'manage_stock',
+                                'use_config_manage_stock'
                             ]
                         )
                         ->where(
-                            'entity_id IN (?)',
+                            'product_id IN (?)',
                             $entityIds
                         )
                 );
 
-                foreach ($rows as $row) {
+                foreach ($stockRowsExisting as $row) {
 
-                    $existingDecimal[
-                        $row['entity_id']
+                    $existingStock[
+                        (int)$row['product_id']
+                    ] = $row;
+                }
+
+                $websiteRowsExisting = $connection->fetchAll(
+                    $connection->select()
+                        ->from(
+                            $websiteTable,
+                            [
+                                'product_id',
+                                'website_id'
+                            ]
+                        )
+                        ->where(
+                            'product_id IN (?)',
+                            $entityIds
+                        )
+                );
+
+                foreach ($websiteRowsExisting as $row) {
+
+                    $existingWebsites[
+                        (int)$row['product_id']
                     ][
-                        $row['attribute_id']
-                    ] = $row['value'];
+                        (int)$row['website_id']
+                    ] = true;
+                }
+
+                $categoryRowsExisting = $connection->fetchAll(
+                    $connection->select()
+                        ->from(
+                            $categoryTable,
+                            [
+                                'product_id',
+                                'category_id'
+                            ]
+                        )
+                        ->where(
+                            'product_id IN (?)',
+                            $entityIds
+                        )
+                );
+
+                foreach ($categoryRowsExisting as $row) {
+
+                    $existingCategories[
+                        (int)$row['product_id']
+                    ][
+                        (int)$row['category_id']
+                    ] = true;
                 }
             }
 
@@ -353,7 +579,14 @@ class BulkImportService
             foreach ($products as $product) {
 
                 if (
-                    empty($product['sku']) ||
+                    !isset($product['sku']) ||
+                    $product['sku'] === '' ||
+                    preg_match('/\s/', $product['sku']) ||
+                    isset(
+                        $duplicateSkuKeys[
+                            strtoupper($product['sku'])
+                        ]
+                    ) ||
                     !isset($entities[$product['sku']])
                 ) {
                     continue;
@@ -374,18 +607,18 @@ class BulkImportService
 
                 if (isset($product['name'])) {
 
-                    $varcharRows[] = [
-                        'attribute_id' =>
-                            (int)$nameAttribute['attribute_id'],
+                    if ($this->addAttributeRowIfChanged(
+                        $varcharRows,
+                        $existingVarchar,
+                        $entityId,
+                        (int)$nameAttribute['attribute_id'],
+                        (string)$product['name']
+                    )) {
 
-                        'store_id' => 0,
-
-                        'entity_id' => $entityId,
-
-                        'value' =>
-                            (string)$product['name']
-                    ];
+                        $changedSkus[$product['sku']] = true;
+                    }
                 }
+
 
                 /*
                 |--------------------------------------------------------------------------
@@ -433,16 +666,16 @@ class BulkImportService
                     $urlKeyAttribute !== null
                 ) {
 
-                    $varcharRows[] = [
-                        'attribute_id' =>
-                            (int)$urlKeyAttribute['attribute_id'],
+                    if ($this->addAttributeRowIfChanged(
+                        $varcharRows,
+                        $existingVarchar,
+                        $entityId,
+                        (int)$urlKeyAttribute['attribute_id'],
+                        $urlKey
+                    )) {
 
-                        'store_id' => 0,
-
-                        'entity_id' => $entityId,
-
-                        'value' => $urlKey
-                    ];
+                        $changedSkus[$product['sku']] = true;
+                    }
                 }
 
                 /*
@@ -456,17 +689,16 @@ class BulkImportService
                     $supplierAttribute !== null
                 ) {
 
-                    $varcharRows[] = [
-                        'attribute_id' =>
-                            (int)$supplierAttribute['attribute_id'],
+                    if ($this->addAttributeRowIfChanged(
+                        $varcharRows,
+                        $existingVarchar,
+                        $entityId,
+                        (int)$supplierAttribute['attribute_id'],
+                        (string)$product['supplier']
+                    )) {
 
-                        'store_id' => 0,
-
-                        'entity_id' => $entityId,
-
-                        'value' =>
-                            (string)$product['supplier']
-                    ];
+                        $changedSkus[$product['sku']] = true;
+                    }
                 }
 
                 /*
@@ -483,29 +715,29 @@ class BulkImportService
                     $description =
                         (string)$product['description'];
 
-                    $textRows[] = [
-                        'attribute_id' =>
-                            (int)$descriptionAttribute['attribute_id'],
+                    if ($this->addAttributeRowIfChanged(
+                        $textRows,
+                        $existingText,
+                        $entityId,
+                        (int)$descriptionAttribute['attribute_id'],
+                        $description
+                    )) {
 
-                        'store_id' => 0,
-
-                        'entity_id' => $entityId,
-
-                        'value' => $description
-                    ];
+                        $changedSkus[$product['sku']] = true;
+                    }
 
                     if ($siteDescriptionAttribute !== null) {
 
-                        $textRows[] = [
-                            'attribute_id' =>
-                                (int)$siteDescriptionAttribute['attribute_id'],
+                        if ($this->addAttributeRowIfChanged(
+                            $textRows,
+                            $existingText,
+                            $entityId,
+                            (int)$siteDescriptionAttribute['attribute_id'],
+                            $description
+                        )) {
 
-                            'store_id' => 0,
-
-                            'entity_id' => $entityId,
-
-                            'value' => $description
-                        ];
+                            $changedSkus[$product['sku']] = true;
+                        }
                     }
                 }
 
@@ -523,29 +755,29 @@ class BulkImportService
                     $short =
                         (string)$product['short_description'];
 
-                    $textRows[] = [
-                        'attribute_id' =>
-                            (int)$shortDescriptionAttribute['attribute_id'],
+                    if ($this->addAttributeRowIfChanged(
+                        $textRows,
+                        $existingText,
+                        $entityId,
+                        (int)$shortDescriptionAttribute['attribute_id'],
+                        $short
+                    )) {
 
-                        'store_id' => 0,
-
-                        'entity_id' => $entityId,
-
-                        'value' => $short
-                    ];
+                        $changedSkus[$product['sku']] = true;
+                    }
 
                     if ($siteShortDescriptionAttribute !== null) {
 
-                        $textRows[] = [
-                            'attribute_id' =>
-                                (int)$siteShortDescriptionAttribute['attribute_id'],
+                        if ($this->addAttributeRowIfChanged(
+                            $textRows,
+                            $existingText,
+                            $entityId,
+                            (int)$siteShortDescriptionAttribute['attribute_id'],
+                            $short
+                        )) {
 
-                            'store_id' => 0,
-
-                            'entity_id' => $entityId,
-
-                            'value' => $short
-                        ];
+                            $changedSkus[$product['sku']] = true;
+                        }
                     }
                 }
 
@@ -563,28 +795,15 @@ class BulkImportService
                     $attributeId =
                         (int)$priceAttribute['attribute_id'];
 
-                    $current =
-                        $existingDecimal[
-                            $entityId
-                        ][
-                            $attributeId
-                        ] ?? null;
+                    if ($this->addDecimalRowIfChanged(
+                        $decimalRows,
+                        $existingDecimal,
+                        $entityId,
+                        $attributeId,
+                        $newPrice
+                    )) {
 
-                    if (
-                        $current === null ||
-                        (float)$current !== $newPrice
-                    ) {
-
-                        $decimalRows[] = [
-                            'attribute_id' =>
-                                $attributeId,
-
-                            'store_id' => 0,
-
-                            'entity_id' => $entityId,
-
-                            'value' => $newPrice
-                        ];
+                        $changedSkus[$product['sku']] = true;
                     }
                 }
 
@@ -605,57 +824,38 @@ class BulkImportService
                     $attributeId =
                         (int)$specialPriceAttribute['attribute_id'];
 
-                    $current =
-                        $existingDecimal[
-                            $entityId
-                        ][
-                            $attributeId
-                        ] ?? null;
-
                     if (
-                        $current === null ||
-                        (float)$current !== $newSpecial
+                        $this->addDecimalRowIfChanged(
+                            $decimalRows,
+                            $existingDecimal,
+                            $entityId,
+                            $attributeId,
+                            $newSpecial
+                        )
                     ) {
 
-                        $decimalRows[] = [
-                            'attribute_id' =>
-                                $attributeId,
-
-                            'store_id' => 0,
-
-                            'entity_id' => $entityId,
-
-                            'value' => $newSpecial
-                        ];
+                        $changedSkus[$product['sku']] = true;
 
                         if ($specialFromDateAttribute !== null) {
 
-                            $datetimeRows[] = [
-                                'attribute_id' =>
-                                    (int)$specialFromDateAttribute['attribute_id'],
-
-                                'store_id' => 0,
-
-                                'entity_id' => $entityId,
-
-                                'value' =>
-                                    date('Y-m-d H:i:s')
-                            ];
+                            $this->addAttributeRowIfChanged(
+                                $datetimeRows,
+                                $existingDatetime,
+                                $entityId,
+                                (int)$specialFromDateAttribute['attribute_id'],
+                                date('Y-m-d H:i:s')
+                            );
                         }
 
                         if ($specialToDateAttribute !== null) {
 
-                            $datetimeRows[] = [
-                                'attribute_id' =>
-                                    (int)$specialToDateAttribute['attribute_id'],
-
-                                'store_id' => 0,
-
-                                'entity_id' => $entityId,
-
-                                'value' =>
-                                    '2035-12-31 23:59:59'
-                            ];
+                            $this->addAttributeRowIfChanged(
+                                $datetimeRows,
+                                $existingDatetime,
+                                $entityId,
+                                (int)$specialToDateAttribute['attribute_id'],
+                                '2035-12-31 23:59:59'
+                            );
                         }
                     }
                 }
@@ -677,28 +877,15 @@ class BulkImportService
                     $attributeId =
                         (int)$weightAttribute['attribute_id'];
 
-                    $current =
-                        $existingDecimal[
-                            $entityId
-                        ][
-                            $attributeId
-                        ] ?? null;
+                    if ($this->addDecimalRowIfChanged(
+                        $decimalRows,
+                        $existingDecimal,
+                        $entityId,
+                        $attributeId,
+                        $newWeight
+                    )) {
 
-                    if (
-                        $current === null ||
-                        (float)$current !== $newWeight
-                    ) {
-
-                        $decimalRows[] = [
-                            'attribute_id' =>
-                                $attributeId,
-
-                            'store_id' => 0,
-
-                            'entity_id' => $entityId,
-
-                            'value' => $newWeight
-                        ];
+                        $changedSkus[$product['sku']] = true;
                     }
                 }
 
@@ -721,12 +908,16 @@ class BulkImportService
 
                     if ($taxClassId) {
 
-                        $intRows[] = [
-                            'attribute_id' => (int)$taxClassAttribute['attribute_id'],
-                            'store_id' => 0,
-                            'entity_id' => $entityId,
-                            'value' => $taxClassId
-                        ];
+                        if ($this->addAttributeRowIfChanged(
+                            $intRows,
+                            $existingInt,
+                            $entityId,
+                            (int)$taxClassAttribute['attribute_id'],
+                            (int)$taxClassId
+                        )) {
+
+                            $changedSkus[$product['sku']] = true;
+                        }
                     }
                 }           
 
@@ -736,17 +927,16 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                $intRows[] = [
-                    'attribute_id' =>
-                        (int)$statusAttribute['attribute_id'],
+                if ($this->addAttributeRowIfChanged(
+                    $intRows,
+                    $existingInt,
+                    $entityId,
+                    (int)$statusAttribute['attribute_id'],
+                    (int)($product['status'] ?? 1)
+                )) {
 
-                    'store_id' => 0,
-
-                    'entity_id' => $entityId,
-
-                    'value' =>
-                        (int)($product['status'] ?? 1)
-                ];
+                    $changedSkus[$product['sku']] = true;
+                }
 
                 /*
                 |--------------------------------------------------------------------------
@@ -754,17 +944,16 @@ class BulkImportService
                 |--------------------------------------------------------------------------
                 */
 
-                $intRows[] = [
-                    'attribute_id' =>
-                        (int)$visibilityAttribute['attribute_id'],
+                if ($this->addAttributeRowIfChanged(
+                    $intRows,
+                    $existingInt,
+                    $entityId,
+                    (int)$visibilityAttribute['attribute_id'],
+                    (int)($product['visibility'] ?? 4)
+                )) {
 
-                    'store_id' => 0,
-
-                    'entity_id' => $entityId,
-
-                    'value' =>
-                        (int)($product['visibility'] ?? 4)
-                ];
+                    $changedSkus[$product['sku']] = true;
+                }
 
                 /*
                 |--------------------------------------------------------------------------
@@ -777,17 +966,16 @@ class BulkImportService
                     $manufacturerAttribute !== null
                 ) {
 
-                    $intRows[] = [
-                        'attribute_id' =>
-                            (int)$manufacturerAttribute['attribute_id'],
+                    if ($this->addAttributeRowIfChanged(
+                        $intRows,
+                        $existingInt,
+                        $entityId,
+                        (int)$manufacturerAttribute['attribute_id'],
+                        (int)$product['manufacturer']
+                    )) {
 
-                        'store_id' => 0,
-
-                        'entity_id' => $entityId,
-
-                        'value' =>
-                            (int)$product['manufacturer']
-                    ];
+                        $changedSkus[$product['sku']] = true;
+                    }
                 }
 
 
@@ -814,16 +1002,16 @@ class BulkImportService
                         $optionId
                     ) {
 
-                        $intRows[] = [
-                            'attribute_id' =>
-                                (int)$gestTipologiaAttribute['attribute_id'],
+                        if ($this->addAttributeRowIfChanged(
+                            $intRows,
+                            $existingInt,
+                            $entityId,
+                            (int)$gestTipologiaAttribute['attribute_id'],
+                            (int)$optionId
+                        )) {
 
-                            'store_id' => 0,
-
-                            'entity_id' => $entityId,
-
-                            'value' => $optionId
-                        ];
+                            $changedSkus[$product['sku']] = true;
+                        }
                     }
                 }
 
@@ -836,7 +1024,7 @@ class BulkImportService
                 $qty =
                     (float)($product['qty'] ?? 0);
 
-                $stockRows[] = [
+                $stockRow = [
                     'product_id' => $entityId,
                     'stock_id' => 1,
                     'qty' => $qty,
@@ -845,6 +1033,18 @@ class BulkImportService
                     'manage_stock' => 1,
                     'use_config_manage_stock' => 1
                 ];
+
+                if (
+                    $this->stockRowChanged(
+                        $existingStock,
+                        $entityId,
+                        $stockRow
+                    )
+                ) {
+
+                    $stockRows[] = $stockRow;
+                    $changedSkus[$product['sku']] = true;
+                }
 
                 /*
                 |--------------------------------------------------------------------------
@@ -855,14 +1055,30 @@ class BulkImportService
                 if (!empty($product['website_ids'])) {
 
                     foreach (
-                        $product['website_ids']
+                        array_unique($product['website_ids'])
                         as $websiteId
                     ) {
 
+                        $websiteId = (int)$websiteId;
+
+                        if (
+                            isset(
+                                $existingWebsites[
+                                    $entityId
+                                ][
+                                    $websiteId
+                                ]
+                            )
+                        ) {
+                            continue;
+                        }
+
                         $websiteRows[] = [
                             'product_id' => $entityId,
-                            'website_id' => (int)$websiteId
+                            'website_id' => $websiteId
                         ];
+
+                        $changedSkus[$product['sku']] = true;
                     }
                 }
 
@@ -875,17 +1091,46 @@ class BulkImportService
                 if (!empty($product['category_ids'])) {
 
                     foreach (
-                        $product['category_ids']
+                        array_unique($product['category_ids'])
                         as $categoryId
                     ) {
 
+                        $categoryId = (int)$categoryId;
+
+                        if (
+                            isset(
+                                $existingCategories[
+                                    $entityId
+                                ][
+                                    $categoryId
+                                ]
+                            )
+                        ) {
+                            continue;
+                        }
+
                         $categoryRows[] = [
-                            'category_id' => (int)$categoryId,
+                            'category_id' => $categoryId,
                             'product_id' => $entityId,
                             'position' => 0
                         ];
+
+                        $changedSkus[$product['sku']] = true;
                     }
                 }
+            }
+
+            foreach ($responseIndexesBySku as $sku => $responseIndex) {
+
+                if (isset($changedSkus[$sku])) {
+                    continue;
+                }
+
+                $responses[$responseIndex]['insertType'] =
+                    ImportResponse::NONE;
+
+                $responses[$responseIndex]['message'] =
+                    'Prodotto invariato';
             }
 
             /*
@@ -1061,6 +1306,130 @@ class BulkImportService
         }
 
         return $attribute;
+    }
+
+    private function getExistingAttributeValues(
+        string $table,
+        array $entityIds
+    ): array
+    {
+        $connection =
+            $this->resource->getConnection();
+
+        $rows = $connection->fetchAll(
+            $connection->select()
+                ->from(
+                    $table,
+                    [
+                        'entity_id',
+                        'attribute_id',
+                        'value'
+                    ]
+                )
+                ->where(
+                    'entity_id IN (?)',
+                    $entityIds
+                )
+        );
+
+        $values = [];
+
+        foreach ($rows as $row) {
+
+            $values[
+                (int)$row['entity_id']
+            ][
+                (int)$row['attribute_id']
+            ] = $row['value'];
+        }
+
+        return $values;
+    }
+
+    private function addAttributeRowIfChanged(
+        array &$rows,
+        array $existingValues,
+        int $entityId,
+        int $attributeId,
+        $value
+    ): bool
+    {
+        $current =
+            $existingValues[
+                $entityId
+            ][
+                $attributeId
+            ] ?? null;
+
+        if (
+            $current !== null &&
+            (string)$current === (string)$value
+        ) {
+            return false;
+        }
+
+        $rows[] = [
+            'attribute_id' => $attributeId,
+            'store_id' => 0,
+            'entity_id' => $entityId,
+            'value' => $value
+        ];
+
+        return true;
+    }
+
+    private function addDecimalRowIfChanged(
+        array &$rows,
+        array $existingValues,
+        int $entityId,
+        int $attributeId,
+        float $value
+    ): bool
+    {
+        $current =
+            $existingValues[
+                $entityId
+            ][
+                $attributeId
+            ] ?? null;
+
+        if (
+            $current !== null &&
+            (float)$current === $value
+        ) {
+            return false;
+        }
+
+        $rows[] = [
+            'attribute_id' => $attributeId,
+            'store_id' => 0,
+            'entity_id' => $entityId,
+            'value' => $value
+        ];
+
+        return true;
+    }
+
+    private function stockRowChanged(
+        array $existingStock,
+        int $entityId,
+        array $stockRow
+    ): bool
+    {
+        $current =
+            $existingStock[$entityId]
+            ?? null;
+
+        if ($current === null) {
+            return true;
+        }
+
+        return
+            (float)$current['qty'] !== (float)$stockRow['qty'] ||
+            (int)$current['is_in_stock'] !== (int)$stockRow['is_in_stock'] ||
+            (int)$current['manage_stock'] !== (int)$stockRow['manage_stock'] ||
+            (int)$current['use_config_manage_stock'] !==
+                (int)$stockRow['use_config_manage_stock'];
     }
 
     private function getAttributeOptionsMap(
