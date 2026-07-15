@@ -44,6 +44,10 @@
         type="Heron\Bulk\Model\ImportImagesStatus"/>
 
     <preference
+        for="Heron\Bulk\Api\StopBatchInterface"
+        type="Heron\Bulk\Model\StopBatch"/>
+
+    <preference
         for="Heron\Bulk\Api\UpdateQtyInterface"
         type="Heron\Bulk\Model\UpdateQty"/>
 </config>

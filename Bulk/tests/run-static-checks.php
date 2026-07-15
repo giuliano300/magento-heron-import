@@ -90,6 +90,7 @@ $protectedRoutes = [
     '/V1/heron/clean-cache',
     '/V1/heron/delete-products',
     '/V1/heron/images-local/:batchId',
+    '/V1/heron/batch-stop/:batchId',
     '/V1/heron/update-qty'
 ];
 
@@ -122,6 +123,11 @@ $assert(
 $assert(
     strpos($imageImport, 'extractZipSafely') !== false,
     'Image import must use safe ZIP extraction'
+);
+
+$assert(
+    strpos($imageImport, '.stop') !== false,
+    'Image import must support cooperative batch stop'
 );
 
 $deleteProducts =

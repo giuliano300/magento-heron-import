@@ -20,7 +20,7 @@ class Import implements ImportInterface
         $this->logger = $logger;
     }
 
-    public function import(string $products)
+    public function import(string $products, string $batchId = '')
     {
         try {
 
@@ -38,7 +38,7 @@ class Import implements ImportInterface
 
             $result =
                 $this->bulkImportService
-                    ->import($decoded);
+                    ->import($decoded, $batchId);
 
 
             return json_encode([

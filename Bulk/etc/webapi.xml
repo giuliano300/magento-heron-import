@@ -131,6 +131,19 @@
             <resource ref="anonymous"/>
         </resources>
     </route>
+
+    <route
+        url="/V1/heron/batch-stop/:batchId"
+        method="POST">
+
+        <service
+            class="Heron\Bulk\Api\StopBatchInterface"
+            method="execute"/>
+
+        <resources>
+            <resource ref="Heron_Bulk::operations"/>
+        </resources>
+    </route>
     
     <route
         url="/V1/heron/update-qty"

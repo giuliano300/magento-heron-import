@@ -107,6 +107,12 @@ class ImportImagesLocal
             . $batchId
             . '.errors.log';
 
+        $stopFile =
+            $logDir
+            . '/'
+            . $batchId
+            . '.stop';
+
         /*
         |--------------------------------------------------------------------------
         | CLEAN OLD FILES
@@ -116,6 +122,7 @@ class ImportImagesLocal
         @unlink($statusFile);
         @unlink($insertedFile);
         @unlink($errorFile);
+        @unlink($stopFile);
 
         /*
         |--------------------------------------------------------------------------
@@ -128,6 +135,8 @@ class ImportImagesLocal
             json_encode(
                 [
                     'running' => true,
+
+                    'stopped' => false,
 
                     'processed' => 0,
 

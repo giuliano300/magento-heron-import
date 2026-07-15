@@ -160,6 +160,12 @@ class ImportImagesStatus
                         ?? false
                     ),
 
+                'stopped' =>
+                    (bool)(
+                        $status['stopped']
+                        ?? false
+                    ),
+
                 'processed' =>
                     (int)(
                         $status['processed']

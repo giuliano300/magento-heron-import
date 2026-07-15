@@ -22,7 +22,7 @@ class BulkImportService
         $this->attributeRepository = $attributeRepository;
     }
 
-    public function import(array $products): array
+    public function import(array $products, string $batchId = ''): array
     {
         if (empty($products)) {
             return [];
@@ -34,6 +34,8 @@ class BulkImportService
         
         try 
         {
+            $this->throwIfBatchStopped($batchId);
+
             /*
             |--------------------------------------------------------------------------
             | TRANSACTION START
@@ -160,6 +162,8 @@ class BulkImportService
 
             foreach ($products as &$product) {
 
+                $this->throwIfBatchStopped($batchId);
+
                 if (isset($product['sku'])) {
 
                     $product['sku'] = trim(
@@ -174,6 +178,8 @@ class BulkImportService
             $skuOccurrences = [];
 
             foreach ($products as $product) {
+
+                $this->throwIfBatchStopped($batchId);
 
                 if (
                     !isset($product['sku']) ||
@@ -229,6 +235,8 @@ class BulkImportService
             $responseIndexesBySku = [];
 
             foreach ($products as $product) {
+
+                $this->throwIfBatchStopped($batchId);
 
                 $response = new ImportResponse();
 
@@ -932,7 +940,7 @@ class BulkImportService
                     $existingInt,
                     $entityId,
                     (int)$statusAttribute['attribute_id'],
-                    (int)($product['status'] ?? 1)
+                    $this->getMagentoStatus($product)
                 )) {
 
                     $changedSkus[$product['sku']] = true;
@@ -1216,6 +1224,10 @@ class BulkImportService
                 );
             }
 
+            // Ultimo controllo dentro la transazione: uno stop arrivato durante
+            // le scritture causa rollback invece di confermare un chunk parziale.
+            $this->throwIfBatchStopped($batchId);
+
             $connection
                 ->commit();
 
@@ -1244,6 +1256,30 @@ class BulkImportService
                 ->critical($e);
 
             throw $e;
+        }
+    }
+
+    private function throwIfBatchStopped(string $batchId): void
+    {
+        if ($batchId === '') {
+            return;
+        }
+
+        if (!preg_match('/^[a-zA-Z0-9\-_]+$/', $batchId)) {
+            throw new \InvalidArgumentException('Batch ID non valido');
+        }
+
+        $stopFile = BP
+            . '/var/import/images/logs/'
+            . $batchId
+            . '.stop';
+
+        clearstatcache(true, $stopFile);
+
+        if (file_exists($stopFile)) {
+            throw new \RuntimeException(
+                'Batch arrestato su richiesta: ' . $batchId
+            );
         }
     }
 
@@ -1306,6 +1342,71 @@ class BulkImportService
         }
 
         return $attribute;
+    }
+
+    private function getMagentoStatus(array $product): int
+    {
+        foreach ([
+            'status',
+            'attivo',
+            'active',
+            'is_active'
+        ] as $field) {
+
+            if (array_key_exists($field, $product)) {
+                return $this->normalizeStatusValue(
+                    $product[$field]
+                );
+            }
+        }
+
+        return 1;
+    }
+
+    private function normalizeStatusValue($value): int
+    {
+        if (is_bool($value)) {
+            return $value ? 1 : 2;
+        }
+
+        if (is_numeric($value)) {
+
+            $numericValue = (int)$value;
+
+            if ($numericValue === 2) {
+                return 2;
+            }
+
+            return $numericValue === 0
+                ? 2
+                : 1;
+        }
+
+        $normalized = strtolower(
+            trim((string)$value)
+        );
+
+        if (
+            in_array(
+                $normalized,
+                [
+                    '0',
+                    '2',
+                    'false',
+                    'no',
+                    'n',
+                    'non attivo',
+                    'disattivo',
+                    'disabled',
+                    'disable'
+                ],
+                true
+            )
+        ) {
+            return 2;
+        }
+
+        return 1;
     }
 
     private function getExistingAttributeValues(

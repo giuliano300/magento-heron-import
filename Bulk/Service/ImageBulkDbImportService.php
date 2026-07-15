@@ -227,6 +227,12 @@ class ImageBulkDbImportService
             . $batchId
             . '.errors.log';
 
+        $stopFile =
+            $logDir
+            . '/'
+            . $batchId
+            . '.stop';
+
         if (!is_dir($logDir)) {
 
             mkdir(
@@ -430,6 +436,7 @@ class ImageBulkDbImportService
             json_encode(
                 [
                     'running' => true,
+                    'stopped' => false,
                     'processed' => 0,
                     'total' => $total,
                     'percent' => 0,
@@ -449,10 +456,30 @@ class ImageBulkDbImportService
         */
 
         $cleaned = [];
+        $stopped = false;
 
         try {
 
             foreach ($parsed as $row) {
+
+                // Lo stop viene applicato tra due immagini, mai nel mezzo delle
+                // scritture DB di una singola immagine, per evitare dati parziali.
+                clearstatcache(true, $stopFile);
+
+                if (file_exists($stopFile)) {
+                    $stopped = true;
+
+                    $this->logger->warning(
+                        'IMAGE IMPORT STOP REQUESTED',
+                        [
+                            'batch_id' => $batchId,
+                            'processed' => $processed,
+                            'total' => $total
+                        ]
+                    );
+
+                    break;
+                }
 
                 try {
 
@@ -905,6 +932,8 @@ class ImageBulkDbImportService
                                 [
                                     'running' => true,
 
+                                    'stopped' => false,
+
                                     'processed' => $processed,
 
                                     'total' => $total,
@@ -964,11 +993,15 @@ class ImageBulkDbImportService
                     [
                         'running' => false,
 
+                        'stopped' => $stopped,
+
                         'processed' => $processed,
 
                         'total' => $total,
 
-                        'percent' => 100,
+                        'percent' => $total > 0
+                            ? round(($processed / $total) * 100, 2)
+                            : 0,
 
                         'updated_at' =>
                             date(
@@ -980,7 +1013,9 @@ class ImageBulkDbImportService
             );
 
             $this->logger->info(
-                'IMAGE IMPORT COMPLETED',
+                $stopped
+                    ? 'IMAGE IMPORT STOPPED'
+                    : 'IMAGE IMPORT COMPLETED',
                 [
                     'processed' => $processed,
                     'total' => $total
@@ -1009,6 +1044,17 @@ class ImageBulkDbImportService
                         'catalog_product_attribute'
                 ]
             );
+
+            if ($stopped) {
+                @unlink($stopFile);
+
+                return [
+                    'success' => true,
+                    'stopped' => true,
+                    'processed' => $processed,
+                    'total' => $total
+                ];
+            }
 
             /*
             |--------------------------------------------------------------------------
