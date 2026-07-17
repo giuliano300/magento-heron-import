@@ -1070,10 +1070,7 @@ class ImageBulkDbImportService
 
             $this->clearCatalogImageCache();
 
-            $this->magentoCommandService
-                ->run([
-                    'catalog:images:resize'
-                ]);
+            $this->startAsyncImageResize();
 
             $this->magentoCommandService
                 ->run([
@@ -1232,6 +1229,43 @@ class ImageBulkDbImportService
             $hash[1],
             $file
         );
+    }
+
+    private function startAsyncImageResize(): void
+    {
+        $phpOptions = [
+            '-d',
+            'memory_limit=2G'
+        ];
+
+        for ($i = 1; $i <= 4; $i++) {
+
+            $this->magentoCommandService
+                ->runBackground(
+                    [
+                        'queue:consumers:start',
+                        'media.storage.catalog.image.resize',
+                        '--max-messages=10000'
+                    ],
+                    'var/log/image-resize/consumer-'
+                    . $i
+                    . '.log',
+                    $phpOptions
+                );
+        }
+
+        sleep(5);
+
+        $this->magentoCommandService
+            ->runBackground(
+                [
+                    'catalog:images:resize',
+                    '--async',
+                    '--skip_hidden_images'
+                ],
+                'var/log/image-resize/producer.log',
+                $phpOptions
+            );
     }
 
     private function clearCatalogImageCache(): void
